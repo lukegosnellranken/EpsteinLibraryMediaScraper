@@ -2,7 +2,7 @@ const { chromium } = require("playwright");
 const fs = require("fs");
 
 // ------------------------------------------------------------
-// LOAD PDF URLS FROM FILE (only change you asked for)
+// LOAD PDF URLS FROM pdf_list.txt
 // ------------------------------------------------------------
 const pdfUrls = fs.readFileSync("pdf_list.txt", "utf8")
   .split(/\r?\n/)
@@ -12,6 +12,21 @@ const pdfUrls = fs.readFileSync("pdf_list.txt", "utf8")
 console.log(`Loaded ${pdfUrls.length} PDF URLs from pdf_list.txt`);
 
 const extensions = [".mp4", ".avi", ".m4a", ".m4v"];
+
+// ------------------------------------------------------------
+// LOAD EXISTING VALID MEDIA URLS (avoid duplicates)
+// ------------------------------------------------------------
+const outputFile = "valid_media.txt";
+
+let existing = new Set();
+if (fs.existsSync(outputFile)) {
+  existing = new Set(
+    fs.readFileSync(outputFile, "utf8")
+      .split(/\r?\n/)
+      .map(line => line.trim())
+      .filter(line => line.length > 0)
+  );
+}
 
 // ------------------------------------------------------------
 // BOT-GATE
@@ -70,6 +85,34 @@ async function testUrl(page, url) {
 }
 
 // ------------------------------------------------------------
+// WORKER FUNCTION (each worker gets its own page)
+// ------------------------------------------------------------
+async function workerTask(context, tasks, results, workerId) {
+  const page = await context.newPage();
+
+  while (true) {
+    const pdfUrl = tasks.shift();
+    if (!pdfUrl) break;
+
+    const base = pdfUrl.replace(/\.pdf$/i, "");
+
+    for (const ext of extensions) {
+      const candidate = base + ext;
+      console.log(`Worker ${workerId} testing: ${candidate}`);
+
+      const result = await testUrl(page, candidate);
+
+      if (result === "video" || result === "download") {
+        results.push({ url: candidate, type: result });
+        break;
+      }
+    }
+  }
+
+  await page.close();
+}
+
+// ------------------------------------------------------------
 // MAIN
 // ------------------------------------------------------------
 (async () => {
@@ -79,41 +122,53 @@ async function testUrl(page, url) {
   });
 
   const context = await browser.newContext({ acceptDownloads: true });
-  const page = await context.newPage();
 
   // ------------------------------------------------------------
-  // ⭐ IMPORTANT: Use a known-good media URL to clear both gates
+  // Clear both gates using a known-good media URL
   // ------------------------------------------------------------
+  const gatePage = await context.newPage();
   console.log("Open browser and solve both gates…");
-  await page.goto("https://www.justice.gov/epstein/files/DataSet%209/EFTA00064604.mp4");
+  await gatePage.goto("https://www.justice.gov/epstein/files/DataSet%209/EFTA00064604.mp4");
 
   await waitForBotGate(context);
-  await waitForAgeGate(page);
+  await waitForAgeGate(gatePage);
+  await gatePage.close();
 
   console.log("Both gates cleared. Running tests…");
 
-  const validUrls = [];
+  // ------------------------------------------------------------
+  // CONCURRENCY: 5 workers (adjust as needed)
+  // ------------------------------------------------------------
+  const WORKERS = 5;
 
-  for (const pdfUrl of pdfUrls) {
-    const base = pdfUrl.replace(/\.pdf$/i, "");
+  const tasks = [...pdfUrls];   // queue
+  const results = [];
 
-    for (const ext of extensions) {
-      const candidate = base + ext;
-      console.log("Testing:", candidate);
-
-      const result = await testUrl(page, candidate);
-
-      if (result === "video" || result === "download") {
-        validUrls.push({ url: candidate, type: result });
-        break;
-      }
-    }
+  const workers = [];
+  for (let i = 0; i < WORKERS; i++) {
+    workers.push(workerTask(context, tasks, results, i + 1));
   }
 
+  await Promise.all(workers);
+
   console.log("\n=== VALID MEDIA URLS FOUND ===");
-  validUrls.forEach(entry => {
+  results.forEach(entry => {
     console.log(`${entry.url}   (${entry.type})`);
   });
+
+  // ------------------------------------------------------------
+  // WRITE ONLY NEW URLS TO valid_media.txt
+  // ------------------------------------------------------------
+  const newOnes = results
+    .map(v => v.url)
+    .filter(url => !existing.has(url));
+
+  if (newOnes.length > 0) {
+    fs.appendFileSync(outputFile, newOnes.join("\n") + "\n");
+    console.log(`\nAdded ${newOnes.length} new URLs to ${outputFile}`);
+  } else {
+    console.log("\nNo new URLs to add.");
+  }
 
   await browser.close();
 })();

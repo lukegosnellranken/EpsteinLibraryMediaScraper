@@ -1,63 +1,125 @@
 const { chromium } = require("playwright");
+const fs = require("fs");
+const readline = require("readline");
 
-const pdfUrls = [
-  "https://www.justice.gov/epstein/files/DataSet%209/EFTA00064604.pdf",
-  "https://www.justice.gov/epstein/files/DataSet%208/EFTA00033360.pdf",
-  "https://www.justice.gov/epstein/files/DataSet%209/EFTA01154497.pdf"
-];
+// ------------------------------
+// CONFIG: LIMIT NUMBER OF RESULTS
+// ------------------------------
+const MAX_RESULTS = 25;   // <-- change this to however many PDFs you want
 
-const extensions = [".mp4", ".avi", ".m4a", ".m4v"];
-
-async function testUrl(page, url) {
-  try {
-    // Detect downloads (AVI)
-    const downloadPromise = page.waitForEvent("download", { timeout: 5000 }).catch(() => null);
-
-    await page.goto(url, { timeout: 15000 });
-
-    const download = await downloadPromise;
-    if (download) return "download"; // .avi
-
-    // Detect playable MP4
-    const hasVideo = await page.$("video");
-    if (hasVideo) return "video"; // .mp4
-
-    return null;
-  } catch {
-    return null;
-  }
+// ------------------------------
+// BOT-GATE
+// ------------------------------
+async function waitForBotGate(context) {
+  await context.waitForEvent("requestfinished", async () => {
+    const cookies = await context.cookies();
+    return cookies.some(c =>
+      c.name.includes("cf") ||
+      c.name.includes("bm") ||
+      c.name.includes("ak")
+    );
+  });
 }
 
-(async () => {
-  // const browser = await chromium.launch({ headless: true });
-  const browser = await chromium.launch({
-    headless: false,
-    slowMo: 250
+// ------------------------------
+// MANUAL AGE-GATE
+// ------------------------------
+function waitForUserConfirmation(message) {
+  return new Promise(resolve => {
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout
+    });
+
+    rl.question(message, () => {
+      rl.close();
+      resolve();
+    });
   });
+}
+
+// ------------------------------
+// MAIN SCRAPER
+// ------------------------------
+async function scrapePDFs() {
+  const browser = await chromium.launch({ headless: false, slowMo: 250 });
   const context = await browser.newContext();
   const page = await context.newPage();
 
-  const validUrls = [];
+  console.log("Opening Epstein Library…");
+  await page.goto("https://www.justice.gov/epstein");
 
-  for (const pdfUrl of pdfUrls) {
-    const base = pdfUrl.replace(/\.pdf$/i, "");
+  console.log("Waiting for bot‑gate…");
+  await waitForBotGate(context);
+  console.log("Bot‑gate cleared.");
 
-    for (const ext of extensions) {
-      const candidate = base + ext;
-      console.log("Testing:", candidate);
+  console.log("If an age‑gate is visible, click “Yes” in the browser.");
+  await waitForUserConfirmation("After you click Yes on the age‑gate, press Enter here to continue… ");
 
-      const result = await testUrl(page, candidate);
+  // ------------------------------
+  // SEARCH INPUT + BUTTON
+  // ------------------------------
 
-      if (result === "video" || result === "download") {
-        validUrls.push({ url: candidate, type: result });
-      }
+  console.log("Locating search input…");
+
+  const input = page.locator("input[placeholder*='Type to search']");
+  await input.waitFor({ state: "visible", timeout: 15000 });
+
+  console.log("Typing search query…");
+  await input.fill("No Images Produced");
+
+  console.log("Locating search button…");
+
+  const searchButton = page.locator("button:has-text('Search')");
+  await searchButton.waitFor({ state: "visible", timeout: 15000 });
+
+  console.log("Submitting search…");
+  await searchButton.click();
+
+  // ------------------------------
+  // WAIT FOR RESULTS (#results)
+  // ------------------------------
+  console.log("Waiting for results…");
+
+  await page.waitForSelector("#results", { timeout: 20000 });
+
+  const pdfs = new Set();
+
+  while (true) {
+    // Extract PDFs from <h3><a>
+    const links = await page.evaluate(() => {
+      return Array.from(document.querySelectorAll("#results h3 a"))
+        .map(a => a.href)
+        .filter(h => h && h.toLowerCase().endsWith(".pdf"));
+    });
+
+    for (const h of links) {
+      if (pdfs.size >= MAX_RESULTS) break;
+      pdfs.add(h);
     }
+
+    if (pdfs.size >= MAX_RESULTS) break;
+
+    // Pagination: look for a "Next" link
+    const nextButton = page.locator("a:has-text('Next')");
+    const hasNext = await nextButton.count();
+
+    if (!hasNext) break;
+
+    console.log("Next page…");
+    await nextButton.first().click();
+    await page.waitForLoadState("networkidle");
+    await page.waitForSelector("#results", { timeout: 20000 });
   }
 
-  console.log("\n=== VALID MEDIA URLS FOUND ===");
-  validUrls.forEach(entry => {
-    console.log(`${entry.url}   (${entry.type})`);
-  });
+  // Write results
+  const output = Array.from(pdfs).join("\n");
+  fs.writeFileSync("pdf_list.txt", output);
+
+  console.log(`Done. Extracted ${pdfs.size} PDFs.`);
+  console.log("Saved to pdf_list.txt");
 
   await browser.close();
-})();
+}
+
+scrapePDFs();
