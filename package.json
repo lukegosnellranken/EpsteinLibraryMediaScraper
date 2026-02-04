@@ -11,6 +11,8 @@
   "description": "",
   "dependencies": {
     "archiver": "^7.0.1",
-    "playwright": "^1.58.1"
+    "axios": "^1.13.4",
+    "playwright": "^1.58.1",
+    "request": "^2.88.2"
   }
 }
