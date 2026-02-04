@@ -54,56 +54,61 @@ archive.pipe(zipOutput);
   console.log("Gates cleared. Starting downloads…");
 
   // ------------------------------------------------------------
-  // DOWNLOAD EACH MEDIA FILE TO A TEMP FOLDER, THEN ZIP
+  // DOWNLOAD EACH MEDIA FILE DIRECTLY INTO ZIP
   // ------------------------------------------------------------
-  const TEMP_DIR = "media_temp";
-  if (!fs.existsSync(TEMP_DIR)) {
-    fs.mkdirSync(TEMP_DIR);
-  }
-
-  const axios = require("axios");
-  const { finished } = require("stream/promises");
-
   for (const url of urls) {
-    const filename = path.basename(url);
-    const dest = path.join(TEMP_DIR, filename);
+  const filename = path.basename(url);
+  console.log("Downloading:", url);
 
-    console.log("Downloading:", url);
+  // Navigate to the page
+  try {
+    await page.goto(url, { timeout: 5000, waitUntil: "domcontentloaded" });
+  } catch {}
 
-    try {
-      const writer = fs.createWriteStream(dest);
-      const response = await axios({
-          url,
-          method: 'GET',
-          responseType: 'stream',
-          headers: {
-              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-              'Referer': 'https://www.justice.gov/'
-          }
-      });
-      response.data.pipe(writer);
-      await finished(writer);
-      console.log("Downloaded:", filename);
-    } catch (err) {
-      console.error(`Error downloading ${url}: ${err.message}`);
-    }
+  // Wait for the video element to load
+  try {
+    await page.waitForFunction(() => document.querySelector("video"), { timeout: 5000 });
+  } catch {
+    console.log("No video element found:", url);
+    continue;
   }
 
-  console.log("Adding files to ZIP archive…");
-  const files = fs.readdirSync(TEMP_DIR);
-  for (const file of files) {
-    const filePath = path.join(TEMP_DIR, file);
-    archive.file(filePath, { name: file });
-    console.log("Added to ZIP:", file);
+  // Trigger a real browser download
+  const [download] = await Promise.all([
+    page.waitForEvent("download"),
+    page.evaluate(() => {
+      const video = document.querySelector("video");
+      if (!video) return;
+
+      const a = document.createElement("a");
+      a.href = video.src;
+      a.download = "";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    })
+  ]);
+
+  // Read the downloaded file into a buffer
+  const stream = await download.createReadStream();
+  const chunks = [];
+
+  for await (const chunk of stream) {
+    chunks.push(chunk);
   }
 
+  const fullBuffer = Buffer.concat(chunks);
 
-  await browser.close();
+  // Add to ZIP
+  archive.append(fullBuffer, { name: filename });
 
-  console.log("Finalizing ZIP…");
-  archive.finalize();
+  console.log("Added to ZIP:", filename);
+}
 
-  zipOutput.on("close", () => {
-    console.log(`Created media_archive.zip (${archive.pointer()} bytes)`);
-  });
+
+await browser.close();
+
+console.log("Finalizing ZIP…");
+archive.finalize();
+
 })();
