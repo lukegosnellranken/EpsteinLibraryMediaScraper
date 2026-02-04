@@ -5,7 +5,7 @@ const readline = require("readline");
 // ------------------------------
 // CONFIG: LIMIT NUMBER OF RESULTS
 // ------------------------------
-const MAX_RESULTS = 25;   // <-- change this to however many PDFs you want
+const MAX_RESULTS = 2;   // <-- change this to however many PDFs you want
 
 // ------------------------------
 // BOT-GATE
@@ -112,12 +112,32 @@ async function scrapePDFs() {
     await page.waitForSelector("#results", { timeout: 20000 });
   }
 
-  // Write results
-  const output = Array.from(pdfs).join("\n");
-  fs.writeFileSync("pdf_list.txt", output);
+  // ------------------------------
+  // WRITE RESULTS WITHOUT OVERWRITING
+  // ------------------------------
+  const outputFile = "pdf_list.txt";
+
+  // Load existing entries if file exists
+  let existing = new Set();
+  if (fs.existsSync(outputFile)) {
+    existing = new Set(
+      fs.readFileSync(outputFile, "utf8")
+        .split(/\r?\n/)
+        .map(x => x.trim())
+        .filter(x => x.length > 0)
+    );
+  }
+
+  // Merge new PDFs into the existing set
+  for (const pdf of pdfs) {
+    existing.add(pdf);
+  }
+
+  // Write back the merged set
+  fs.writeFileSync(outputFile, Array.from(existing).join("\n"));
 
   console.log(`Done. Extracted ${pdfs.size} PDFs.`);
-  console.log("Saved to pdf_list.txt");
+  console.log("Updated pdf_list.txt without overwriting existing entries.");
 
   await browser.close();
 }

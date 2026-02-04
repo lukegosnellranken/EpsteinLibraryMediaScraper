@@ -11,7 +11,14 @@ const pdfUrls = fs.readFileSync("pdf_list.txt", "utf8")
 
 console.log(`Loaded ${pdfUrls.length} PDF URLs from pdf_list.txt`);
 
+// Fast coverage -- covers most files
+// const extensions = [".mp4", ".avi"];
+
+// Full coverage -- covers almost, if not all files
 const extensions = [".mp4", ".avi", ".m4a", ".m4v"];
+
+// Paranoid coverage -- covers files that might exist (but probably don't)
+// const extensions = [".mp4", ".avi", ".m4a", ".m4v", ".wav", ".mov", ".wmv"];
 
 // ------------------------------------------------------------
 // LOAD EXISTING VALID MEDIA URLS (avoid duplicates)
@@ -67,7 +74,7 @@ async function testUrl(page, url) {
     const downloadPromise = page.waitForEvent("download", { timeout: 1500 }).catch(() => null);
 
     try {
-      await page.goto(url, { timeout: 1000, waitUntil: "load" });
+      await page.goto(url, { timeout: 800, waitUntil: "load" });
     } catch {
       // .avi triggers download and prevents normal navigation
     }
@@ -90,7 +97,7 @@ async function testUrl(page, url) {
 (async () => {
   const browser = await chromium.launch({
     headless: false,
-    slowMo: 250
+    slowMo: 0
   });
 
   const context = await browser.newContext({ acceptDownloads: true });
