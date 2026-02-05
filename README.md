@@ -4,12 +4,8 @@ This project is designed to scrape, validate, and archive media files from the E
 
 Note: Not all files have valid extensions, thus the number of valid URLs may be less than the number of files that were processed during scraping.
 
-
-
 ## ☕ Buy Me a Coffee ☕
 All donations are deeply appreciated: https://buymeacoffee.com/lukegosnell
-
-
 
 ## Getting Started
 
@@ -19,11 +15,15 @@ All donations are deeply appreciated: https://buymeacoffee.com/lukegosnell
     npm install
     ```
 ### General Use Example
-1.  In the project root folder, run `./run.sh 0` to scrape and validate all files. Scraped files will be viewable in pdf_list.txt and validated files will be viewable in valid_media.txt.
-2.  Run `node zip.js 0` to zip all media files from `valid_media.txt`.
+1.  In the project root folder, run `./run.sh 0` to scrape and validate all files. 
+    - Scraped files will be viewable in pdf_list.txt and validated files will be viewable in valid_media.txt.
+    - Note that in the test browser, the user must manually validate the "I am not a robot" and "Are you 18 years or older?" messages on the landing page of the Epstein Library before scraping and/or validating. Not doing so will cause the run to fail.
+2.  Run `node zip.js 0` to download all media files from `valid_media.txt`.
 3.  View the media in the generated `media_archive.zip` folder.
 
-## Usage
+NOTE: All files (as of 2/5/26) are listed in the testing folder (`pdf_list.all.txt`, `valid_media.all.txt`). Move these files into the root of the project and remove the `.all` from their filenames. From here, you can simply run the `zip.js` command (see `Zipping Media Files` section below) to download the files.
+
+## Deeper Usage
 
 ### Running the Scraper and Validator (`run.sh`)
 
