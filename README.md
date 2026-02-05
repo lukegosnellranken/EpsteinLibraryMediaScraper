@@ -15,13 +15,15 @@ All donations are deeply appreciated: https://buymeacoffee.com/lukegosnell
     npm install
     ```
 ### General Use Example
+The following example is theoretical, as after a few hundered or so requests while validating, I began having my access denied from the Library. Thus, it is best to spread validation and zipping (see `Validating URLS` and `Zipping Media Files` sections below for usage) across multiple runs if downloading a large number of files.
+
 1.  In the project root folder, run `./run.sh 0` to scrape and validate all files. 
     - Scraped files will be viewable in pdf_list.txt and validated files will be viewable in valid_media.txt.
-    - Note that in the test browser, the user must manually validate the "I am not a robot" and "Are you 18 years or older?" messages on the landing page of the Epstein Library before scraping and/or validating. Not doing so will cause the run to fail.
+    - Note that in the test browser, the user must manually validate the "I am not a robot" and "Are you 18 years or older?" messages on the landing page of the Epstein Library before scraping and/or validating (and hit `enter` in the terminal afterward). Not doing so will cause the run to fail.
 2.  Run `node zip.js 0` to download all media files from `valid_media.txt`.
 3.  View the media in the generated `media_archive.zip` folder.
 
-NOTE: All files (as of 2/5/26) are listed in the testing folder (`pdf_list.all.txt`, `valid_media.all.txt`). Move these files into the root of the project and remove the `.all` from their filenames. From here, you can simply run the `zip.js` command (see `Zipping Media Files` section below) to download the files.
+NOTE: All files (as of 2/5/26) are listed in the `testing` folder (`pdf_list.all.txt`). To skip the scraping step, move this file into the root of the project and remove the `.all` from its filename. From here, validate and zip to download the files.
 
 ## Deeper Usage
 
@@ -52,6 +54,40 @@ The `run.sh` script automates the process of scraping media URLs using `scrape.j
 
 # Scrape and validate all entries based on TOTAL_LIBRARY_FILES from .env
 ./run.sh 0
+```
+
+### Validating URLs (`validate.js`)
+
+The `validate.js` script finds the valid media URLs (based on `pdf_list.txt`) and archives them into `valid_media.txt`.
+
+**Syntax:**
+
+```bash
+node validate.js <RANGE_OR_INDEX>
+```
+
+**Arguments:**
+
+*   `<RANGE_OR_INDEX>`: (Optional) Controls which entries are processed for zipping.
+    *   `0`: Process all entries found in `pdf_list.txt`.
+    *   `<index>` (e.g., `5`): Process only the entry at the specified 1-based index from `pdf_list.txt`.
+    *   `<start>-<end>` (e.g., `5-12`): Process entires within the specified 1-based range from `pdf_list.txt`.
+    *   *If no argument is provided, it defaults to processing all entries (equivalent to `0`).*
+
+**Examples:**
+
+```bash
+# Validate all entries from pdf_list.txt
+node validate.js 0
+
+# Validate only the 7th entry
+node validate.js 7
+
+# Validate entries from the 10th to the 25th entry
+node validate.js 10-25
+
+# Validate all entries (no argument implicitly means all)
+node validate.js
 ```
 
 ### Zipping Media Files (`zip.js`)

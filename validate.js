@@ -4,10 +4,38 @@ const fs = require("fs");
 // ------------------------------------------------------------
 // LOAD PDF URLS FROM pdf_list.txt
 // ------------------------------------------------------------
-const pdfUrls = fs.readFileSync("pdf_list.txt", "utf8")
+let pdfUrls = fs.readFileSync("pdf_list.txt", "utf8")
   .split(/\r?\n/)
   .map(line => line.trim())
   .filter(line => line.length > 0);
+
+// ------------------------------------------------------------
+// RANGE SELECTION (CLI ARGUMENT)
+// Usage:
+//   node validate.js 0        → all
+//   node validate.js 10       → only 10th entry
+//   node validate.js 10-20    → entries 10 through 20
+// ------------------------------------------------------------
+const arg = process.argv[2];
+
+if (arg && arg !== "0") {
+  if (arg.includes("-")) {
+    const [startStr, endStr] = arg.split("-");
+    const start = parseInt(startStr, 10);
+    const end = parseInt(endStr, 10);
+
+    if (!isNaN(start) && !isNaN(end) && start > 0 && end >= start) {
+      pdfUrls = pdfUrls.slice(start - 1, end);
+      console.log(`Using range ${start}-${end} (${pdfUrls.length} entries)`);
+    }
+  } else {
+    const index = parseInt(arg, 10);
+    if (!isNaN(index) && index > 0 && index <= pdfUrls.length) {
+      pdfUrls = [pdfUrls[index - 1]];
+      console.log(`Using single entry #${index}`);
+    }
+  }
+}
 
 console.log(`Loaded ${pdfUrls.length} PDF URLs from pdf_list.txt`);
 
@@ -36,7 +64,7 @@ async function waitForBotGate(context) {
   console.log("Waiting for bot‑gate clearance…");
 
   await context.waitForEvent("requestfinished", {
-    timeout: 0,   // ← NEVER TIME OUT
+    timeout: 0,
     predicate: async () => {
       const cookies = await context.cookies();
       return cookies.some(c =>
@@ -58,7 +86,7 @@ async function waitForAgeGate(page) {
 
   await page.waitForFunction(
     () => document.querySelector("video"),
-    { timeout: 0 } // ← NEVER TIME OUT
+    { timeout: 0 }
   );
 
   console.log("Age‑gate cleared.");
@@ -116,7 +144,6 @@ async function testUrl(page, url) {
   const WORKERS = 8;
   const queues = Array.from({ length: WORKERS }, () => []);
 
-  // Split pdfUrls into 8 queues
   pdfUrls.forEach((url, i) => queues[i % WORKERS].push(url));
 
   const validUrls = [];
