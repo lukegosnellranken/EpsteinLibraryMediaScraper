@@ -1,8 +1,11 @@
-# EpsteinLibraryMediaScraper
+# Epstein Library Media Scraper
 
 This project is designed to scrape, validate, and archive media files from the Epstein Library. It uses `scrape.js` to extract URLs, `validate.js` to verify them, and `zip.js` to download and compress the media into a ZIP archive.
 
-Note: Not all files have valid extensions, thus the number of valid URLs may be less than the number of files that were processed during scraping. 
+Note: Not all files have valid extensions, thus the number of valid URLs may be less than the number of files that were processed during scraping.
+
+## ☕ Buy Me a Coffee ☕
+All donations are deeply appreciated: https://buymeacoffee.com/lukegosnell
 
 ## Getting Started
 
@@ -11,6 +14,10 @@ Note: Not all files have valid extensions, thus the number of valid URLs may be 
     ```bash
     npm install
     ```
+### General Use Example
+1.  In the project root folder, run `./run.sh 0` to scrape and validate all files. Scraped files will be viewable in pdf_list.txt and validated files will be viewable in valid_media.txt.
+2.  Run `node zip.js 0` to zip all media files from `valid_media.txt`.
+3.  View the media in the generated `media_archive.zip` folder.
 
 ## Usage
 
