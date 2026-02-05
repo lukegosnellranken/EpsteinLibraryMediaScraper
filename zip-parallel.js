@@ -8,7 +8,8 @@ const cliProgress = require("cli-progress");
 // ------------------------------------------------------------
 // CONFIG
 // ------------------------------------------------------------
-const WORKERS = 6; // 5–8 recommended
+const MP4_WORKERS = 4;
+const AVI_WORKERS = 2;
 
 // ------------------------------------------------------------
 // LOAD MEDIA URLS
@@ -19,6 +20,15 @@ const urls = fs.readFileSync("valid_media.txt", "utf8")
   .filter(line => line.length > 0);
 
 console.log(`Loaded ${urls.length} media URLs from valid_media.txt`);
+
+const aviQueue = [];
+const mp4Queue = [];
+
+for (const url of urls) {
+  const filename = path.basename(url).split("?")[0];
+  if (filename.toLowerCase().endsWith(".avi")) aviQueue.push(url);
+  else mp4Queue.push(url);
+}
 
 // ------------------------------------------------------------
 // MAIN
@@ -50,10 +60,8 @@ console.log(`Loaded ${urls.length} media URLs from valid_media.txt`);
   archive.on("error", err => { throw err; });
   archive.pipe(zipOutput);
 
-  // Copy old ZIP contents into new ZIP
   if (fs.existsSync("media_archive.zip")) {
     const directory = await unzip.Open.file("media_archive.zip");
-
     for (const entry of directory.files) {
       const stream = entry.stream();
       archive.append(stream, { name: entry.path });
@@ -71,12 +79,13 @@ console.log(`Loaded ${urls.length} media URLs from valid_media.txt`);
   const context = await browser.newContext({ acceptDownloads: true });
 
   // ------------------------------------------------------------
-  // GLOBAL GATE CLEAR (PRIMES CONTEXT COOKIES)
+  // GLOBAL GATE CLEAR
   // ------------------------------------------------------------
+  const gateUrl = "https://www.justice.gov/epstein/files/DataSet%209/EFTA00064604.mp4";
   const gatePage = await context.newPage();
 
   console.log("Clearing gates on context…");
-  await gatePage.goto("https://www.justice.gov/epstein/files/DataSet%209/EFTA00064604.mp4");
+  await gatePage.goto(gateUrl);
 
   await context.waitForEvent("requestfinished", async () => {
     const cookies = await context.cookies();
@@ -95,72 +104,39 @@ console.log(`Loaded ${urls.length} media URLs from valid_media.txt`);
   // ------------------------------------------------------------
   // PROGRESS BAR
   // ------------------------------------------------------------
+  const totalCount = urls.length;
   const progressBar = new cliProgress.SingleBar({
     format: 'Progress |{bar}| {value}/{total} files',
-    hideCursor: true
+    hideCursor: true,
+    clearOnComplete: false,
+    stopOnComplete: false
   }, cliProgress.Presets.shades_classic);
 
-  progressBar.start(urls.length, 0);
+  progressBar.start(totalCount, 0);
+
+  let completed = 0;
+  function tick() {
+    completed++;
+    progressBar.update(completed);
+  }
 
   // ------------------------------------------------------------
-  // WORK QUEUE
+  // MP4 WORKER
   // ------------------------------------------------------------
-  const queue = [...urls];
-
-  // ------------------------------------------------------------
-  // WORKER FUNCTION
-  // ------------------------------------------------------------
-  async function worker(id) {
+  async function mp4Worker(id) {
     const page = await context.newPage();
 
-    // Each worker warms itself against DOJ once
-    try {
-      console.log(`[W${id}] Warming gate…`);
-      await page.goto("https://www.justice.gov/epstein/files/DataSet%209/EFTA00064604.mp4");
-      await page.waitForFunction(() => document.querySelector("video"), { timeout: 0 });
-      console.log(`[W${id}] Gate warm complete.`);
-    } catch (err) {
-      console.log(`[W${id}] Gate warm failed (continuing anyway):`, err.message || err);
-    }
-
-    while (queue.length > 0) {
-      const url = queue.shift();
+    while (mp4Queue.length > 0) {
+      const url = mp4Queue.shift();
       if (!url) break;
 
       let filename = path.basename(url).split("?")[0];
 
       if (existingFiles.has(filename)) {
-        progressBar.increment();
+        tick();
         continue;
       }
 
-      // ------------------------------------------------------------
-      // AVI HANDLING — SAME AS WORKING SEQUENTIAL (BROWSER FETCH)
-      // ------------------------------------------------------------
-      if (filename.toLowerCase().endsWith(".avi")) {
-        try {
-          console.log(`[W${id}] Downloading AVI via fetch(): ${url}`);
-
-          const aviBytes = await page.evaluate(async (aviUrl) => {
-            const res = await fetch(aviUrl);
-            const arrayBuffer = await res.arrayBuffer();
-            return Array.from(new Uint8Array(arrayBuffer));
-          }, url);
-
-          archive.append(Buffer.from(aviBytes), { name: filename });
-          console.log(`[W${id}] Added AVI to ZIP: ${filename}`);
-
-        } catch (err) {
-          console.log(`[W${id}] AVI fetch error:`, err.message || err);
-        }
-
-        progressBar.increment();
-        continue;
-      }
-
-      // ------------------------------------------------------------
-      // MP4 / M4V / etc. HANDLING (your original working logic)
-      // ------------------------------------------------------------
       try {
         await page.goto(url, { timeout: 5000, waitUntil: "domcontentloaded" });
       } catch {}
@@ -168,7 +144,7 @@ console.log(`Loaded ${urls.length} media URLs from valid_media.txt`);
       try {
         await page.waitForFunction(() => document.querySelector("video"), { timeout: 5000 });
       } catch {
-        progressBar.increment();
+        tick();
         continue;
       }
 
@@ -179,7 +155,7 @@ console.log(`Loaded ${urls.length} media URLs from valid_media.txt`);
       });
 
       if (!realVideoUrl) {
-        progressBar.increment();
+        tick();
         continue;
       }
 
@@ -200,10 +176,50 @@ console.log(`Loaded ${urls.length} media URLs from valid_media.txt`);
         const chunks = [];
         for await (const chunk of stream) chunks.push(chunk);
         archive.append(Buffer.concat(chunks), { name: filename });
-        console.log(`[W${id}] Added MP4 to ZIP: ${filename}`);
       }
 
-      progressBar.increment();
+      tick();
+    }
+
+    await page.close();
+  }
+
+  // ------------------------------------------------------------
+  // AVI WORKER
+  // ------------------------------------------------------------
+  async function aviWorker(id) {
+    const page = await context.newPage();
+
+    try {
+      await page.goto(gateUrl);
+      await page.waitForFunction(() => document.querySelector("video"), { timeout: 0 });
+    } catch {}
+
+    while (aviQueue.length > 0) {
+      const url = aviQueue.shift();
+      if (!url) break;
+
+      let filename = path.basename(url).split("?")[0];
+
+      if (existingFiles.has(filename)) {
+        tick();
+        continue;
+      }
+
+      try {
+        const aviBytes = await page.evaluate(async (aviUrl) => {
+          const res = await fetch(aviUrl);
+          const arrayBuffer = await res.arrayBuffer();
+          return Array.from(new Uint8Array(arrayBuffer));
+        }, url);
+
+        archive.append(Buffer.from(aviBytes), { name: filename });
+      } catch (err) {
+        // keep this log, but it will be rare
+        console.log(`[AVI W${id}] AVI fetch error:`, err.message || err);
+      }
+
+      tick();
     }
 
     await page.close();
@@ -213,9 +229,9 @@ console.log(`Loaded ${urls.length} media URLs from valid_media.txt`);
   // START WORKERS
   // ------------------------------------------------------------
   const workers = [];
-  for (let i = 1; i <= WORKERS; i++) {
-    workers.push(worker(i));
-  }
+
+  for (let i = 1; i <= MP4_WORKERS; i++) workers.push(mp4Worker(i));
+  for (let i = 1; i <= AVI_WORKERS; i++) workers.push(aviWorker(i));
 
   await Promise.all(workers);
 
@@ -226,12 +242,12 @@ console.log(`Loaded ${urls.length} media URLs from valid_media.txt`);
 
   await browser.close();
 
-  console.log("Finalizing ZIP…");
+  console.log("\nFinalizing ZIP…");
   archive.finalize();
 
   zipOutput.on("close", () => {
-    fs.renameSync("media_archive_new.zip", "media_archive.zip");
     console.log("Updated media_archive.zip");
+    fs.renameSync("media_archive_new.zip", "media_archive.zip");
   });
 
 })();
