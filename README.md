@@ -4,8 +4,12 @@ This project is designed to scrape, validate, and archive media files from the E
 
 Note: Not all files have valid extensions, thus the number of valid URLs may be less than the number of files that were processed during scraping.
 
+
+
 ## ☕ Buy Me a Coffee ☕
 All donations are deeply appreciated: https://buymeacoffee.com/lukegosnell
+
+
 
 ## Getting Started
 
