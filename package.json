@@ -13,6 +13,7 @@
     "archiver": "^7.0.1",
     "axios": "^1.13.4",
     "playwright": "^1.58.1",
-    "request": "^2.88.2"
+    "request": "^2.88.2",
+    "unzipper": "^0.12.3"
   }
 }

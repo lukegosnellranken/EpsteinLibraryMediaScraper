@@ -90,6 +90,33 @@ console.log(`Loaded ${urls.length} media URLs from valid_media.txt`);
   for (const url of urls) {
     let filename = path.basename(url).split("?")[0];
 
+    // ------------------------------------------------------------
+    // AVI HANDLING — ALWAYS FETCH (native download never fires)
+    // ------------------------------------------------------------
+    if (filename.toLowerCase().endsWith(".avi")) {
+
+      if (existingFiles.has(filename)) {
+        console.log("Already exists, skipping AVI:", filename);
+        continue;
+      }
+
+      console.log("Downloading AVI via fetch():", url);
+
+      const aviBuffer = await page.evaluate(async (aviUrl) => {
+        const res = await fetch(aviUrl);
+        const arrayBuffer = await res.arrayBuffer();
+        return Array.from(new Uint8Array(arrayBuffer));
+      }, url);
+
+      archive.append(Buffer.from(aviBuffer), { name: filename });
+
+      console.log("Added AVI to ZIP:", filename);
+      continue;
+    }
+
+    // ------------------------------------------------------------
+    // MP4 / M4V / etc. HANDLING (your original working logic)
+    // ------------------------------------------------------------
     if (existingFiles.has(filename)) {
       console.log("Already exists, skipping:", filename);
       continue;
@@ -108,7 +135,6 @@ console.log(`Loaded ${urls.length} media URLs from valid_media.txt`);
       continue;
     }
 
-    // Extract real video URL (handles blob: cases)
     const realVideoUrl = await page.evaluate(() => {
       const video = document.querySelector("video");
       const source = video?.querySelector("source");
