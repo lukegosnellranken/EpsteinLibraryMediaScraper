@@ -6,10 +6,38 @@ const archiver = require("archiver");
 // ------------------------------------------------------------
 // LOAD MEDIA URLS
 // ------------------------------------------------------------
-const urls = fs.readFileSync("valid_media.txt", "utf8")
+let urls = fs.readFileSync("valid_media.txt", "utf8")
   .split(/\r?\n/)
   .map(line => line.trim())
   .filter(line => line.length > 0);
+
+// ------------------------------------------------------------
+// RANGE SELECTION (CLI ARGUMENT)
+// Usage:
+//   node zip-sequential.js 0        → all
+//   node zip-sequential.js 5        → only 5th entry
+//   node zip-sequential.js 5-12     → entries 5 through 12
+// ------------------------------------------------------------
+const arg = process.argv[2];
+
+if (arg && arg !== "0") {
+  if (arg.includes("-")) {
+    const [startStr, endStr] = arg.split("-");
+    const start = parseInt(startStr, 10);
+    const end = parseInt(endStr, 10);
+
+    if (!isNaN(start) && !isNaN(end) && start > 0 && end >= start) {
+      urls = urls.slice(start - 1, end);
+      console.log(`Using range ${start}-${end} (${urls.length} entries)`);
+    }
+  } else {
+    const index = parseInt(arg, 10);
+    if (!isNaN(index) && index > 0 && index <= urls.length) {
+      urls = [urls[index - 1]];
+      console.log(`Using single entry #${index}`);
+    }
+  }
+}
 
 console.log(`Loaded ${urls.length} media URLs from valid_media.txt`);
 

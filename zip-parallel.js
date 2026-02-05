@@ -14,10 +14,38 @@ const AVI_WORKERS = 3;
 // ------------------------------------------------------------
 // LOAD MEDIA URLS
 // ------------------------------------------------------------
-const urls = fs.readFileSync("valid_media.txt", "utf8")
+let urls = fs.readFileSync("valid_media.txt", "utf8")
   .split(/\r?\n/)
   .map(line => line.trim())
   .filter(line => line.length > 0);
+
+// ------------------------------------------------------------
+// RANGE SELECTION (CLI ARGUMENT)
+// Usage:
+//   node zip-parallel.js 0        → all
+//   node zip-parallel.js 5        → only 5th entry
+//   node zip-parallel.js 5-12     → entries 5 through 12
+// ------------------------------------------------------------
+const arg = process.argv[2];
+
+if (arg && arg !== "0") {
+  if (arg.includes("-")) {
+    const [startStr, endStr] = arg.split("-");
+    const start = parseInt(startStr, 10);
+    const end = parseInt(endStr, 10);
+
+    if (!isNaN(start) && !isNaN(end) && start > 0 && end >= start) {
+      urls = urls.slice(start - 1, end);
+      console.log(`Using range ${start}-${end} (${urls.length} entries)`);
+    }
+  } else {
+    const index = parseInt(arg, 10);
+    if (!isNaN(index) && index > 0 && index <= urls.length) {
+      urls = [urls[index - 1]];
+      console.log(`Using single entry #${index}`);
+    }
+  }
+}
 
 console.log(`Loaded ${urls.length} media URLs from valid_media.txt`);
 
@@ -28,13 +56,10 @@ for (const url of urls) {
   const filename = path.basename(url).split("?")[0];
   const lower = filename.toLowerCase();
 
-  // ------------------------------------------------------------
-  // UPDATED: .avi and .mov behave the same (direct download)
-  // ------------------------------------------------------------
   if (lower.endsWith(".avi") || lower.endsWith(".mov")) {
     aviQueue.push(url);
   } else {
-    mp4Queue.push(url); // includes .mp4, .m4v, .m4a, etc.
+    mp4Queue.push(url);
   }
 }
 
@@ -43,9 +68,6 @@ for (const url of urls) {
 // ------------------------------------------------------------
 (async () => {
 
-  // ------------------------------------------------------------
-  // LOAD EXISTING ZIP CONTENTS
-  // ------------------------------------------------------------
   const existingFiles = new Set();
 
   if (fs.existsSync("media_archive.zip")) {
@@ -59,9 +81,6 @@ for (const url of urls) {
     console.log("Existing files:", existingFiles.size);
   }
 
-  // ------------------------------------------------------------
-  // PREP NEW ZIP ARCHIVE
-  // ------------------------------------------------------------
   const zipOutput = fs.createWriteStream("media_archive_new.zip");
   const archive = archiver("zip", { zlib: { level: 9 } });
 
@@ -76,9 +95,6 @@ for (const url of urls) {
     }
   }
 
-  // ------------------------------------------------------------
-  // BROWSER SETUP
-  // ------------------------------------------------------------
   const browser = await chromium.launch({
     headless: false,
     slowMo: 150
@@ -86,9 +102,6 @@ for (const url of urls) {
 
   const context = await browser.newContext({ acceptDownloads: true });
 
-  // ------------------------------------------------------------
-  // GLOBAL GATE CLEAR
-  // ------------------------------------------------------------
   const gateUrl = "https://www.justice.gov/epstein/files/DataSet%209/EFTA00064604.mp4";
   const gatePage = await context.newPage();
 
@@ -109,9 +122,6 @@ for (const url of urls) {
 
   console.log("Context gates cleared. Starting parallel downloads…");
 
-  // ------------------------------------------------------------
-  // PROGRESS BAR
-  // ------------------------------------------------------------
   const totalCount = urls.length;
   const progressBar = new cliProgress.SingleBar({
     format: 'Progress |{bar}| {value}/{total} files',
@@ -128,9 +138,6 @@ for (const url of urls) {
     progressBar.update(completed);
   }
 
-  // ------------------------------------------------------------
-  // MP4 WORKER
-  // ------------------------------------------------------------
   async function mp4Worker(id) {
     const page = await context.newPage();
 
@@ -192,9 +199,6 @@ for (const url of urls) {
     await page.close();
   }
 
-  // ------------------------------------------------------------
-  // AVI WORKER
-  // ------------------------------------------------------------
   async function aviWorker(id) {
     const page = await context.newPage();
 
@@ -232,9 +236,6 @@ for (const url of urls) {
     await page.close();
   }
 
-  // ------------------------------------------------------------
-  // START WORKERS
-  // ------------------------------------------------------------
   const workers = [];
 
   for (let i = 1; i <= MP4_WORKERS; i++) workers.push(mp4Worker(i));
@@ -242,9 +243,6 @@ for (const url of urls) {
 
   await Promise.all(workers);
 
-  // ------------------------------------------------------------
-  // FINALIZE ZIP
-  // ------------------------------------------------------------
   progressBar.stop();
 
   await browser.close();
