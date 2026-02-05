@@ -72,27 +72,28 @@ archive.pipe(zipOutput);
 
   for (const url of urls) {
     const filename = path.basename(url).split("?")[0];
+    const lower = filename.toLowerCase();
 
     console.log("\nDownloading:", url);
 
     // ------------------------------------------------------------
-    // AVI HANDLING — FETCH INSIDE BROWSER CONTEXT (AUTHENTICATED)
+    // AVI + MOV HANDLING — SAME AS PARALLEL SCRIPT
     // ------------------------------------------------------------
-    if (filename.toLowerCase().endsWith(".avi")) {
+    if (lower.endsWith(".avi") || lower.endsWith(".mov")) {
       try {
-        console.log("Fetching AVI via browser context:", url);
+        console.log("Fetching AVI/MOV via browser context:", url);
 
-        const aviBytes = await page.evaluate(async (aviUrl) => {
-          const res = await fetch(aviUrl, { credentials: "include" });
+        const bytes = await page.evaluate(async (fileUrl) => {
+          const res = await fetch(fileUrl);
           const arrayBuffer = await res.arrayBuffer();
           return Array.from(new Uint8Array(arrayBuffer));
         }, url);
 
-        archive.append(Buffer.from(aviBytes), { name: filename });
-        console.log("Added AVI to ZIP:", filename);
+        archive.append(Buffer.from(bytes), { name: filename });
+        console.log("Added AVI/MOV to ZIP:", filename);
 
       } catch (err) {
-        console.log("AVI fetch error:", err.message || err);
+        console.log("AVI/MOV fetch error:", err.message || err);
       }
 
       completed++;
@@ -101,46 +102,58 @@ archive.pipe(zipOutput);
     }
 
     // ------------------------------------------------------------
-    // MP4 / M4V / M4A HANDLING — REQUEST CAPTURE
+    // MP4 / M4V / M4A HANDLING — MATCH PARALLEL SCRIPT EXACTLY
     // ------------------------------------------------------------
-    let captured = null;
-
-    const listener = async (request) => {
-      const reqUrl = request.url();
-
-      if (
-        reqUrl.endsWith(".mp4") ||
-        reqUrl.endsWith(".m4v") ||
-        reqUrl.endsWith(".m4a")
-      ) {
-        try {
-          const response = await request.response();
-          if (!response) return;
-
-          const buffer = await response.body();
-          captured = buffer;
-        } catch {}
-      }
-    };
-
-    page.on("requestfinished", listener);
-
     try {
       await page.goto(url, { timeout: 5000, waitUntil: "domcontentloaded" });
     } catch {}
 
-    await page.waitForTimeout(1500);
-
-    page.off("requestfinished", listener);
-
-    if (!captured) {
-      console.log("Failed to capture media request:", url);
+    try {
+      await page.waitForFunction(() => document.querySelector("video"), { timeout: 5000 });
+    } catch {
+      console.log("No video element found:", url);
       completed++;
       renderProgress(completed, urls.length);
       continue;
     }
 
-    archive.append(captured, { name: filename });
+    const realVideoUrl = await page.evaluate(() => {
+      const video = document.querySelector("video");
+      const source = video?.querySelector("source");
+      return source?.src || video?.src || null;
+    });
+
+    if (!realVideoUrl) {
+      console.log("No usable video URL found:", url);
+      completed++;
+      renderProgress(completed, urls.length);
+      continue;
+    }
+
+    const [download] = await Promise.all([
+      page.waitForEvent("download"),
+      page.evaluate((src) => {
+        const a = document.createElement("a");
+        a.href = src;
+        a.download = "";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      }, realVideoUrl)
+    ]);
+
+    const stream = await download.createReadStream();
+    if (!stream) {
+      console.log("Download stream was null, skipping:", filename);
+      completed++;
+      renderProgress(completed, urls.length);
+      continue;
+    }
+
+    const chunks = [];
+    for await (const chunk of stream) chunks.push(chunk);
+
+    archive.append(Buffer.concat(chunks), { name: filename });
     console.log("Added to ZIP:", filename);
 
     completed++;

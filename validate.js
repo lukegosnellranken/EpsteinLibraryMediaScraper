@@ -15,7 +15,7 @@ console.log(`Loaded ${pdfUrls.length} PDF URLs from pdf_list.txt`);
 // const extensions = [".mp4", ".avi"];
 
 // Full coverage -- covers almost, if not all files
-const extensions = [".mp4", ".avi", ".m4a", ".m4v"];
+const extensions = [".mp4", ".avi", ".m4a", ".m4v", ".mov"];
 
 // Paranoid coverage -- covers files that might exist (but probably don't)
 // const extensions = [".mp4", ".avi", ".m4a", ".m4v", ".wav", ".mov", ".wmv"];

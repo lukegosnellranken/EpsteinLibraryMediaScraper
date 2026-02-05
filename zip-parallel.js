@@ -8,8 +8,8 @@ const cliProgress = require("cli-progress");
 // ------------------------------------------------------------
 // CONFIG
 // ------------------------------------------------------------
-const MP4_WORKERS = 4;
-const AVI_WORKERS = 2;
+const MP4_WORKERS = 5;
+const AVI_WORKERS = 3;
 
 // ------------------------------------------------------------
 // LOAD MEDIA URLS
@@ -26,8 +26,16 @@ const mp4Queue = [];
 
 for (const url of urls) {
   const filename = path.basename(url).split("?")[0];
-  if (filename.toLowerCase().endsWith(".avi")) aviQueue.push(url);
-  else mp4Queue.push(url);
+  const lower = filename.toLowerCase();
+
+  // ------------------------------------------------------------
+  // UPDATED: .avi and .mov behave the same (direct download)
+  // ------------------------------------------------------------
+  if (lower.endsWith(".avi") || lower.endsWith(".mov")) {
+    aviQueue.push(url);
+  } else {
+    mp4Queue.push(url); // includes .mp4, .m4v, .m4a, etc.
+  }
 }
 
 // ------------------------------------------------------------
@@ -215,7 +223,6 @@ for (const url of urls) {
 
         archive.append(Buffer.from(aviBytes), { name: filename });
       } catch (err) {
-        // keep this log, but it will be rare
         console.log(`[AVI W${id}] AVI fetch error:`, err.message || err);
       }
 
