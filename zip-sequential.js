@@ -14,7 +14,19 @@ const urls = fs.readFileSync("valid_media.txt", "utf8")
 console.log(`Loaded ${urls.length} media URLs from valid_media.txt`);
 
 // ------------------------------------------------------------
-// PREP ZIP ARCHIVE (NO TEMP FOLDER)
+// SIMPLE BUILT-IN PROGRESS BAR
+// ------------------------------------------------------------
+function renderProgress(current, total) {
+  const width = 30;
+  const ratio = current / total;
+  const filled = Math.round(ratio * width);
+  const bar = "█".repeat(filled) + "░".repeat(width - filled);
+  process.stdout.write(`\rProgress [${bar}] ${current}/${total}`);
+  if (current === total) process.stdout.write("\n");
+}
+
+// ------------------------------------------------------------
+// PREP ZIP ARCHIVE
 // ------------------------------------------------------------
 const zipOutput = fs.createWriteStream("media_archive.zip");
 const archive = archiver("zip", { zlib: { level: 9 } });
@@ -54,13 +66,43 @@ archive.pipe(zipOutput);
   console.log("Gates cleared. Starting downloads…");
 
   // ------------------------------------------------------------
-  // DOWNLOAD EACH MEDIA FILE DIRECTLY INTO ZIP
+  // SEQUENTIAL DOWNLOAD LOOP
   // ------------------------------------------------------------
+  let completed = 0;
+
   for (const url of urls) {
-    const filename = path.basename(url);
+    const filename = path.basename(url).split("?")[0];
 
-    console.log("Downloading:", url);
+    console.log("\nDownloading:", url);
 
+    // ------------------------------------------------------------
+    // AVI HANDLING — FETCH INSIDE BROWSER CONTEXT (AUTHENTICATED)
+    // ------------------------------------------------------------
+    if (filename.toLowerCase().endsWith(".avi")) {
+      try {
+        console.log("Fetching AVI via browser context:", url);
+
+        const aviBytes = await page.evaluate(async (aviUrl) => {
+          const res = await fetch(aviUrl, { credentials: "include" });
+          const arrayBuffer = await res.arrayBuffer();
+          return Array.from(new Uint8Array(arrayBuffer));
+        }, url);
+
+        archive.append(Buffer.from(aviBytes), { name: filename });
+        console.log("Added AVI to ZIP:", filename);
+
+      } catch (err) {
+        console.log("AVI fetch error:", err.message || err);
+      }
+
+      completed++;
+      renderProgress(completed, urls.length);
+      continue;
+    }
+
+    // ------------------------------------------------------------
+    // MP4 / M4V / M4A HANDLING — REQUEST CAPTURE
+    // ------------------------------------------------------------
     let captured = null;
 
     const listener = async (request) => {
@@ -69,7 +111,6 @@ archive.pipe(zipOutput);
       if (
         reqUrl.endsWith(".mp4") ||
         reqUrl.endsWith(".m4v") ||
-        reqUrl.endsWith(".avi") ||
         reqUrl.endsWith(".m4a")
       ) {
         try {
@@ -94,16 +135,21 @@ archive.pipe(zipOutput);
 
     if (!captured) {
       console.log("Failed to capture media request:", url);
+      completed++;
+      renderProgress(completed, urls.length);
       continue;
     }
 
     archive.append(captured, { name: filename });
     console.log("Added to ZIP:", filename);
+
+    completed++;
+    renderProgress(completed, urls.length);
   }
 
   await browser.close();
 
-  console.log("Finalizing ZIP…");
+  console.log("\nFinalizing ZIP…");
   archive.finalize();
 
   zipOutput.on("close", () => {

@@ -1,0 +1,237 @@
+const { chromium } = require("playwright");
+const fs = require("fs");
+const path = require("path");
+const archiver = require("archiver");
+const unzip = require("unzipper");
+const cliProgress = require("cli-progress");
+
+// ------------------------------------------------------------
+// CONFIG
+// ------------------------------------------------------------
+const WORKERS = 6; // 5–8 recommended
+
+// ------------------------------------------------------------
+// LOAD MEDIA URLS
+// ------------------------------------------------------------
+const urls = fs.readFileSync("valid_media.txt", "utf8")
+  .split(/\r?\n/)
+  .map(line => line.trim())
+  .filter(line => line.length > 0);
+
+console.log(`Loaded ${urls.length} media URLs from valid_media.txt`);
+
+// ------------------------------------------------------------
+// MAIN
+// ------------------------------------------------------------
+(async () => {
+
+  // ------------------------------------------------------------
+  // LOAD EXISTING ZIP CONTENTS
+  // ------------------------------------------------------------
+  const existingFiles = new Set();
+
+  if (fs.existsSync("media_archive.zip")) {
+    console.log("Reading existing ZIP…");
+
+    const directory = await unzip.Open.file("media_archive.zip");
+    for (const entry of directory.files) {
+      existingFiles.add(entry.path);
+    }
+
+    console.log("Existing files:", existingFiles.size);
+  }
+
+  // ------------------------------------------------------------
+  // PREP NEW ZIP ARCHIVE
+  // ------------------------------------------------------------
+  const zipOutput = fs.createWriteStream("media_archive_new.zip");
+  const archive = archiver("zip", { zlib: { level: 9 } });
+
+  archive.on("error", err => { throw err; });
+  archive.pipe(zipOutput);
+
+  // Copy old ZIP contents into new ZIP
+  if (fs.existsSync("media_archive.zip")) {
+    const directory = await unzip.Open.file("media_archive.zip");
+
+    for (const entry of directory.files) {
+      const stream = entry.stream();
+      archive.append(stream, { name: entry.path });
+    }
+  }
+
+  // ------------------------------------------------------------
+  // BROWSER SETUP
+  // ------------------------------------------------------------
+  const browser = await chromium.launch({
+    headless: false,
+    slowMo: 150
+  });
+
+  const context = await browser.newContext({ acceptDownloads: true });
+
+  // ------------------------------------------------------------
+  // GLOBAL GATE CLEAR (PRIMES CONTEXT COOKIES)
+  // ------------------------------------------------------------
+  const gatePage = await context.newPage();
+
+  console.log("Clearing gates on context…");
+  await gatePage.goto("https://www.justice.gov/epstein/files/DataSet%209/EFTA00064604.mp4");
+
+  await context.waitForEvent("requestfinished", async () => {
+    const cookies = await context.cookies();
+    return cookies.some(c =>
+      c.name.includes("cf") ||
+      c.name.includes("bm") ||
+      c.name.includes("ak")
+    );
+  });
+
+  await gatePage.waitForFunction(() => document.querySelector("video"), { timeout: 0 });
+  await gatePage.close();
+
+  console.log("Context gates cleared. Starting parallel downloads…");
+
+  // ------------------------------------------------------------
+  // PROGRESS BAR
+  // ------------------------------------------------------------
+  const progressBar = new cliProgress.SingleBar({
+    format: 'Progress |{bar}| {value}/{total} files',
+    hideCursor: true
+  }, cliProgress.Presets.shades_classic);
+
+  progressBar.start(urls.length, 0);
+
+  // ------------------------------------------------------------
+  // WORK QUEUE
+  // ------------------------------------------------------------
+  const queue = [...urls];
+
+  // ------------------------------------------------------------
+  // WORKER FUNCTION
+  // ------------------------------------------------------------
+  async function worker(id) {
+    const page = await context.newPage();
+
+    // Each worker warms itself against DOJ once
+    try {
+      console.log(`[W${id}] Warming gate…`);
+      await page.goto("https://www.justice.gov/epstein/files/DataSet%209/EFTA00064604.mp4");
+      await page.waitForFunction(() => document.querySelector("video"), { timeout: 0 });
+      console.log(`[W${id}] Gate warm complete.`);
+    } catch (err) {
+      console.log(`[W${id}] Gate warm failed (continuing anyway):`, err.message || err);
+    }
+
+    while (queue.length > 0) {
+      const url = queue.shift();
+      if (!url) break;
+
+      let filename = path.basename(url).split("?")[0];
+
+      if (existingFiles.has(filename)) {
+        progressBar.increment();
+        continue;
+      }
+
+      // ------------------------------------------------------------
+      // AVI HANDLING — SAME AS WORKING SEQUENTIAL (BROWSER FETCH)
+      // ------------------------------------------------------------
+      if (filename.toLowerCase().endsWith(".avi")) {
+        try {
+          console.log(`[W${id}] Downloading AVI via fetch(): ${url}`);
+
+          const aviBytes = await page.evaluate(async (aviUrl) => {
+            const res = await fetch(aviUrl);
+            const arrayBuffer = await res.arrayBuffer();
+            return Array.from(new Uint8Array(arrayBuffer));
+          }, url);
+
+          archive.append(Buffer.from(aviBytes), { name: filename });
+          console.log(`[W${id}] Added AVI to ZIP: ${filename}`);
+
+        } catch (err) {
+          console.log(`[W${id}] AVI fetch error:`, err.message || err);
+        }
+
+        progressBar.increment();
+        continue;
+      }
+
+      // ------------------------------------------------------------
+      // MP4 / M4V / etc. HANDLING (your original working logic)
+      // ------------------------------------------------------------
+      try {
+        await page.goto(url, { timeout: 5000, waitUntil: "domcontentloaded" });
+      } catch {}
+
+      try {
+        await page.waitForFunction(() => document.querySelector("video"), { timeout: 5000 });
+      } catch {
+        progressBar.increment();
+        continue;
+      }
+
+      const realVideoUrl = await page.evaluate(() => {
+        const video = document.querySelector("video");
+        const source = video?.querySelector("source");
+        return source?.src || video?.src || null;
+      });
+
+      if (!realVideoUrl) {
+        progressBar.increment();
+        continue;
+      }
+
+      const [download] = await Promise.all([
+        page.waitForEvent("download"),
+        page.evaluate((src) => {
+          const a = document.createElement("a");
+          a.href = src;
+          a.download = "";
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+        }, realVideoUrl)
+      ]);
+
+      const stream = await download.createReadStream();
+      if (stream) {
+        const chunks = [];
+        for await (const chunk of stream) chunks.push(chunk);
+        archive.append(Buffer.concat(chunks), { name: filename });
+        console.log(`[W${id}] Added MP4 to ZIP: ${filename}`);
+      }
+
+      progressBar.increment();
+    }
+
+    await page.close();
+  }
+
+  // ------------------------------------------------------------
+  // START WORKERS
+  // ------------------------------------------------------------
+  const workers = [];
+  for (let i = 1; i <= WORKERS; i++) {
+    workers.push(worker(i));
+  }
+
+  await Promise.all(workers);
+
+  // ------------------------------------------------------------
+  // FINALIZE ZIP
+  // ------------------------------------------------------------
+  progressBar.stop();
+
+  await browser.close();
+
+  console.log("Finalizing ZIP…");
+  archive.finalize();
+
+  zipOutput.on("close", () => {
+    fs.renameSync("media_archive_new.zip", "media_archive.zip");
+    console.log("Updated media_archive.zip");
+  });
+
+})();
