@@ -2,6 +2,8 @@
 
 This project is designed to scrape, validate, and archive media files from the Epstein Library. It uses `scrape.js` to extract URLs, `validate.js` to verify them, and `zip.js` to download and compress the media into a ZIP archive.
 
+Note: Not all files have valid extensions, thus the number of valid URLs may be less than the number of files that were processed during scraping. 
+
 ## Getting Started
 
 1.  **Environment Variables**: Ensure your `.env` file is configured with necessary variables, including `TOTAL_LIBRARY_FILES`, which should be equal to the number of files returned when searching "No Images Produced" in the Epstein Library.
@@ -25,10 +27,8 @@ The `run.sh` script automates the process of scraping media URLs using `scrape.j
 **Arguments:**
 
 *   `<SCRAPE_ENTRIES_VALUE>`: A string representing the entries to scrape. Examples include:
-    *   `"1,2,3"`: Scrape specific entries by their index.
-    *   `"1-100"`: Scrape a range of entries.
-    *   `"all"`: Scrape all entries (if supported by `scrape.js` and `validate.js` - *Note: The current `run.sh` script passes this directly, ensure `scrape.js` handles "all" or adjust the script if a different keyword is needed for all entries*).
-*   `0`: A special argument. If you pass `0`, the script will read the `TOTAL_LIBRARY_FILES` value from your `.env` file and use that to set `SCRAPE_ENTRIES`, effectively processing all files if `TOTAL_LIBRARY_FILES` represents the total count.
+    *   `<index>` (e.g., `25`): Process only the first 25 files`.
+    *   `0`: A special argument. If you pass `0`, the script will read the `TOTAL_LIBRARY_FILES` value from your `.env` file and use that to set `SCRAPE_ENTRIES`, effectively processing all files if `TOTAL_LIBRARY_FILES` represents the total count.
 
 **Examples:**
 
