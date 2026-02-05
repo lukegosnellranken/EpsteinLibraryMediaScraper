@@ -1,3 +1,6 @@
+require("dotenv").config();
+const scrape_entries = process.env.SCRAPE_ENTRIES;
+
 const { chromium } = require("playwright");
 const fs = require("fs");
 const readline = require("readline");
@@ -5,7 +8,7 @@ const readline = require("readline");
 // ------------------------------
 // CONFIG: LIMIT NUMBER OF RESULTS
 // ------------------------------
-const MAX_RESULTS = 2;   // <-- change this to however many PDFs you want
+const MAX_RESULTS = scrape_entries;   // <-- change this in the .env file to however many PDFs you want
 
 // ------------------------------
 // BOT-GATE

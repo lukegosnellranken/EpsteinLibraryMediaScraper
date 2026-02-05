@@ -11,8 +11,14 @@ const pdfUrls = fs.readFileSync("pdf_list.txt", "utf8")
 
 console.log(`Loaded ${pdfUrls.length} PDF URLs from pdf_list.txt`);
 
-// Full coverage
+// Fast coverage -- covers most files
+// const extensions = [".mp4", ".avi"];
+
+// Full coverage -- covers almost, if not all files
 const extensions = [".mp4", ".avi", ".m4a", ".m4v", ".mov"];
+
+// Paranoid coverage -- covers files that might exist (but probably don't)
+// const extensions = [".mp4", ".avi", ".m4a", ".m4v", ".wav", ".mov", ".wmv"];
 
 // ------------------------------------------------------------
 // LOAD EXISTING VALID MEDIA URLS (avoid duplicates)
@@ -35,16 +41,13 @@ if (fs.existsSync(outputFile)) {
 async function waitForBotGate(context) {
   console.log("Waiting for bot‑gate clearance…");
 
-  await context.waitForEvent("requestfinished", {
-    timeout: 0,   // ← NEVER TIME OUT
-    predicate: async () => {
-      const cookies = await context.cookies();
-      return cookies.some(c =>
-        c.name.includes("cf") ||
-        c.name.includes("bm") ||
-        c.name.includes("ak")
-      );
-    }
+  await context.waitForEvent("requestfinished", async () => {
+    const cookies = await context.cookies();
+    return cookies.some(c =>
+      c.name.includes("cf") ||
+      c.name.includes("bm") ||
+      c.name.includes("ak")
+    );
   });
 
   console.log("Bot‑gate cleared.");
@@ -56,10 +59,9 @@ async function waitForBotGate(context) {
 async function waitForAgeGate(page) {
   console.log("Waiting for age‑gate clearance…");
 
-  await page.waitForFunction(
-    () => document.querySelector("video"),
-    { timeout: 0 } // ← NEVER TIME OUT
-  );
+  await page.waitForFunction(() => {
+    return document.querySelector("video");
+  }, { timeout: 0 });
 
   console.log("Age‑gate cleared.");
 }
@@ -73,7 +75,9 @@ async function testUrl(page, url) {
 
     try {
       await page.goto(url, { timeout: 800, waitUntil: "load" });
-    } catch {}
+    } catch {
+      // .avi triggers download and prevents normal navigation
+    }
 
     const download = await downloadPromise;
     if (download) return "download";
@@ -110,43 +114,28 @@ async function testUrl(page, url) {
 
   console.log("Both gates cleared. Running tests…");
 
-  // ------------------------------------------------------------
-  // 8-WORKER PARALLEL VALIDATION
-  // ------------------------------------------------------------
-  const WORKERS = 8;
-  const queues = Array.from({ length: WORKERS }, () => []);
-
-  // Split pdfUrls into 8 queues
-  pdfUrls.forEach((url, i) => queues[i % WORKERS].push(url));
-
   const validUrls = [];
 
-  async function worker(queueIndex) {
-    const workerPage = await context.newPage();
-    const myQueue = queues[queueIndex];
+  for (const pdfUrl of pdfUrls) {
+    const base = pdfUrl.replace(/\.pdf$/i, "");
 
-    for (const pdfUrl of myQueue) {
-      const base = pdfUrl.replace(/\.pdf$/i, "");
+    for (const ext of extensions) {
+      const candidate = base + ext;
+      console.log("Testing:", candidate);
 
-      for (const ext of extensions) {
-        const candidate = base + ext;
-        console.log(`[W${queueIndex}] Testing:`, candidate);
+      const result = await testUrl(page, candidate);
 
-        const result = await testUrl(workerPage, candidate);
-
-        if (result === "video" || result === "download") {
-          validUrls.push({ url: candidate, type: result });
-          break;
-        }
+      if (result === "video" || result === "download") {
+        validUrls.push({ url: candidate, type: result });
+        break;
       }
     }
-
-    await workerPage.close();
   }
 
-  await Promise.all(
-    Array.from({ length: WORKERS }, (_, i) => worker(i))
-  );
+  console.log("\n=== VALID MEDIA URLS FOUND ===");
+  validUrls.forEach(entry => {
+    console.log(`${entry.url}   (${entry.type})`);
+  });
 
   // ------------------------------------------------------------
   // WRITE ONLY NEW URLS TO valid_media.txt
