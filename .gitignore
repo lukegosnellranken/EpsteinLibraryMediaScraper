@@ -1,2 +1,5 @@
 pdf_list.txt
 valid_media.txt
+node_modules/
+media_archive.zip
+media_archive_new.zip
