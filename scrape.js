@@ -8,7 +8,17 @@ const readline = require("readline");
 // ------------------------------
 // CONFIG: LIMIT NUMBER OF RESULTS
 // ------------------------------
-const MAX_RESULTS = scrape_entries;   // <-- change this in the .env file to however many PDFs you want
+const MAX_RESULTS = scrape_entries;
+
+// ------------------------------
+// SIMPLE PROGRESS BAR
+// ------------------------------
+function renderProgress(pageNum) {
+  const width = 10;
+  const filled = pageNum % (width + 1);
+  const bar = "#".repeat(filled) + "-".repeat(width - filled);
+  process.stdout.write(`\rPage ${pageNum} [${bar}]`);
+}
 
 // ------------------------------
 // BOT-GATE
@@ -87,8 +97,26 @@ async function scrapePDFs() {
   await page.waitForSelector("#results", { timeout: 20000 });
 
   const pdfs = new Set();
+  let pageNum = 1;
+
+  // Initial progress bar
+  renderProgress(pageNum);
 
   while (true) {
+    // Detect session timeout
+    const sessionDead = await page.evaluate(() => {
+      const noResults = document.body.innerText.includes("No results found.");
+      const hasLinks = document.querySelectorAll("#results h3 a").length > 0;
+      return noResults && !hasLinks;
+    });
+
+    if (sessionDead) {
+      console.log("\nSession expired. Please refresh the page manually and pass the gate(s) again.");
+      console.log("\nNext, search for 'No Images Produced' manually and skip to the last page scraped.");
+      await waitForUserConfirmation("Press Enter when ready… ");
+      await page.waitForSelector("#results", { timeout: 20000 });
+    }
+
     // Extract PDFs from <h3><a>
     const links = await page.evaluate(() => {
       return Array.from(document.querySelectorAll("#results h3 a"))
@@ -109,11 +137,17 @@ async function scrapePDFs() {
 
     if (!hasNext) break;
 
-    console.log("Next page…");
+    // Advance page
+    pageNum++;
+    renderProgress(pageNum);
+
     await nextButton.first().click();
     await page.waitForLoadState("networkidle");
     await page.waitForSelector("#results", { timeout: 20000 });
   }
+
+  // Move to next line after progress bar
+  process.stdout.write("\n");
 
   // ------------------------------
   // WRITE RESULTS WITHOUT OVERWRITING

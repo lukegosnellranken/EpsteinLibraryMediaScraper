@@ -29,10 +29,10 @@ if (arg && arg !== "0") {
       console.log(`Using range ${start}-${end} (${pdfUrls.length} entries)`);
     }
   } else {
-    const index = parseInt(arg, 10);
-    if (!isNaN(index) && index > 0 && index <= pdfUrls.length) {
-      pdfUrls = [pdfUrls[index - 1]];
-      console.log(`Using single entry #${index}`);
+    const count = parseInt(arg, 10);
+    if (!isNaN(count) && count > 0) {
+      pdfUrls = pdfUrls.slice(0, count);
+      console.log(`Using first ${count} entries`);
     }
   }
 }
@@ -141,12 +141,10 @@ async function testUrl(page, url) {
   // ------------------------------------------------------------
   // 8-WORKER PARALLEL VALIDATION
   // ------------------------------------------------------------
-  const WORKERS = 8;
+  const WORKERS = 4;
   const queues = Array.from({ length: WORKERS }, () => []);
 
   pdfUrls.forEach((url, i) => queues[i % WORKERS].push(url));
-
-  const validUrls = [];
 
   async function worker(queueIndex) {
     const workerPage = await context.newPage();
@@ -162,7 +160,16 @@ async function testUrl(page, url) {
         const result = await testUrl(workerPage, candidate);
 
         if (result === "video" || result === "download") {
-          validUrls.push({ url: candidate, type: result });
+
+          // ------------------------------------------------------------
+          // WRITE IMMEDIATELY WHEN FOUND
+          // ------------------------------------------------------------
+          if (!existing.has(candidate)) {
+            fs.appendFileSync(outputFile, candidate + "\n");
+            existing.add(candidate);
+            console.log(`[W${queueIndex}] Added immediately: ${candidate}`);
+          }
+
           break;
         }
       }
@@ -175,19 +182,6 @@ async function testUrl(page, url) {
     Array.from({ length: WORKERS }, (_, i) => worker(i))
   );
 
-  // ------------------------------------------------------------
-  // WRITE ONLY NEW URLS TO valid_media.txt
-  // ------------------------------------------------------------
-  const newOnes = validUrls
-    .map(v => v.url)
-    .filter(url => !existing.has(url));
-
-  if (newOnes.length > 0) {
-    fs.appendFileSync(outputFile, newOnes.join("\n") + "\n");
-    console.log(`\nAdded ${newOnes.length} new URLs to ${outputFile}`);
-  } else {
-    console.log("\nNo new URLs to add.");
-  }
-
+  console.log("\nValidation complete.");
   await browser.close();
 })();

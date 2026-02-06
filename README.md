@@ -2,7 +2,10 @@
 
 This project is designed to scrape, validate, and archive media files from the Epstein Library. It uses `scrape.js` to extract URLs, `validate.js` to verify them, and `zip.js` to download and compress the media into a ZIP archive.
 
-Note: Not all files have valid extensions, thus the number of valid URLs may be less than the number of files that were processed during scraping.
+# On the Total Number of Valid Files
+
+1. The total search results for "No Images Produced" are less than the Library states due to a bug on the DOJ website. For instance, as of 2/6/25, the site states "Showing 1 to 10 of 3,803 Results." The actual number of returned non-duplicate results is 2725.
+2. Not all files have valid extensions, thus the number of valid URLs may be less than the number of files that were processed during scraping.
 
 ## ☕ Buy Me a Coffee ☕
 All donations are deeply appreciated: https://buymeacoffee.com/lukegosnell
