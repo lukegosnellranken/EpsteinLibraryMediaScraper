@@ -2,10 +2,15 @@
 
 This project is designed to scrape, validate, and archive media files from the Epstein Library. It uses `scrape.js` to extract URLs, `validate.js` to verify them, and `zip.js` to download and compress the media into a ZIP archive.
 
-# On the Total Number of Valid Files
+# On the Total Number of Valid File Links
 
 1. The total search results for "No Images Produced" are less than the Library states due to a bug on the DOJ website. For instance, as of 2/7/25, the site states "Showing 1 to 10 of 3,803 Results." The actual number of returned non-duplicate results is 2775.
 2. Not all files have valid extensions, thus the number of valid URLs may be less than the number of files that were processed during scraping.
+
+## Results Folder (Up to date as of: 2/7/26)
+*   `pdf_list.all.txt`: Contains all returned .pdf file links from the Library search.
+*   `valid_media.all.txt`: Contains all validated file links.
+*   `entries_missing_files.all.txt`: Contains every .pdf link that did not return a valid file link.
 
 ## ☕ Buy Me a Coffee ☕
 All donations are deeply appreciated: https://buymeacoffee.com/lukegosnell
@@ -25,7 +30,7 @@ The following example is theoretical, as after a few hundered or so requests whi
     - Scraped entries will be viewable in `pdf_list.txt`.
 2.  Run `node validate.js 0` to validate all stored entries from scraping.
     - In the test browser, the user must manually validate the "Are you 18 years or older?" message.
-    - Validated files will be viewable in `valid_media.txt`.
+    - Validated file links will be viewable in `valid_media.txt`.
 3.  Run `node zip.js 0` to download all media files from `valid_media.txt`.
 4.  View the media in the generated `media_archive.zip` folder.
 
@@ -73,7 +78,15 @@ node scrape.js
 
 The `validate.js` script finds the valid media URLs (based on `pdf_list.txt`) and archives them into `valid_media.txt`.
 
+**Input Files:**
+*   `pdf_list.txt`: Contains a list of .pdf links to be validated.
+
+**Output Files:**
+*   `valid_media.txt`: Contains a list of URLs that have been successfully validated.
+
 NOTE: Take note of the terminal if the run times out. There are instructions for continuing where the run left off.
+
+A QUIRKY WORKAROUND: Validating every link automatically required some out-of-the-box thinking, as the DOJ site tends to freeze if using more than one worker and times out every 60 or so entries tested. The solution? Hovering over the area the "I am not a robot" button appears with an auto-clicker program running (https://garyshood.com/rsclient/). Voilà!
 
 **Syntax:**
 
@@ -138,3 +151,23 @@ node zip.js 10-25
 # Zip all media files (no argument implicitly means all)
 node zip.js
 ```
+
+### Identifying Missing Entries (`missing.js`)
+
+The `missing.js` script compares entries in `pdf_list.txt` against `valid_media.txt` to find entries that exist in `pdf_list.txt` but do not have a correlating filename in `valid_media.txt`. It extracts the base filename (e.g., "EFTA00221042" from "https://.../EFTA00221042.pdf") from each line for comparison. If a filename from `pdf_list.txt` is not found in `valid_media.txt`, the original full entry from `pdf_list.txt` is written to a new file.
+
+**Input Files:**
+*   `pdf_list.txt`: Contains a list of .pdf links.
+*   `valid_media.txt`: Contains a list of validated links.
+
+**Output File:**
+*   `entries_missing_files.txt`: A new file created in the root directory containing the original full entries from `pdf_list.txt` that were determined to be missing.
+
+**Syntax:**
+
+```bash
+node missing.js
+```
+
+**Description:**
+This script does not take any arguments. Simply running it will perform the comparison and generate `entries_missing_files.txt`.
