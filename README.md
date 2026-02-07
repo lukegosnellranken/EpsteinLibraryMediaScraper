@@ -17,8 +17,7 @@ All donations are deeply appreciated: https://buymeacoffee.com/lukegosnell
 
 ## Getting Started
 
-1.  **Environment Variables**: Ensure your `.env` file is configured with necessary variables, including `TOTAL_LIBRARY_FILES`, which should be equal to the number of files returned when searching "No Images Produced" in the Epstein Library.
-2.  **Dependencies**: Install Node.js dependencies:
+ **Dependencies**: Install Node.js dependencies:
     ```bash
     npm install
     ```
