@@ -1,6 +1,6 @@
 # Epstein Library Media Scraper
 
-This project is designed to scrape, validate, and archive media files from the Epstein Library. It uses `scrape.js` to extract URLs, `validate.js` to verify them, and `zip.js` to download and compress the media into a ZIP archive.
+This project is designed to scrape, validate, and archive media files from the Epstein Library. It uses `scrape.js` to extract URLs, `validate.js` to verify them, `zip.js` to download and compress the media into a ZIP archive, and `missing.js` to list the files that could not be validated.
 
 # On the Total Number of Valid File Links
 
