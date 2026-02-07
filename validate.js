@@ -100,8 +100,13 @@ async function testUrl(page, url) {
     const downloadPromise = page.waitForEvent("download", { timeout: 1500 }).catch(() => null);
 
     try {
-      await page.goto(url, { timeout: 800, waitUntil: "load" });
-    } catch {}
+      await page.goto(url, { timeout: 5000, waitUntil: "load" });
+    } catch {
+      // Even if goto times out, the challenge page may still be visible
+    }
+
+    // Pause if Turnstile / challenge page is active
+    await waitForTurnstile(page);
 
     const download = await downloadPromise;
     if (download) return "download";
@@ -112,6 +117,41 @@ async function testUrl(page, url) {
     return null;
   } catch {
     return null;
+  }
+}
+
+// ------------------------------------------------------------
+// TIMEOUT CHALLENGE
+// ------------------------------------------------------------
+async function waitForTurnstile(page) {
+  while (true) {
+    const url = page.url();
+
+    // Simple URL-based detection (Cloudflare challenge pages)
+    const looksLikeChallengeUrl =
+      url.includes("/challenge") ||
+      url.includes("challenges.cloudflare.com");
+
+    // Text-based detection on the top-level page
+    const hasText = await page.$('text="I am not a robot"');
+
+    // Iframe-based detection
+    const hasIframe = await page.$('iframe[src*="challenges.cloudflare.com"]');
+
+    if (!looksLikeChallengeUrl && !hasText && !hasIframe) {
+      // No challenge → continue
+      return;
+    }
+
+    console.log("\n⚠️  Cloudflare verification required.");
+    console.log("Please click the 'I am not a robot' button in the browser.");
+    console.log("Press Enter here once the page finishes loading normally.\n");
+
+    await new Promise(resolve => {
+      process.stdin.resume();
+      process.stdin.once("data", resolve);
+    });
+    process.stdin.pause();
   }
 }
 
@@ -141,7 +181,7 @@ async function testUrl(page, url) {
   // ------------------------------------------------------------
   // 8-WORKER PARALLEL VALIDATION
   // ------------------------------------------------------------
-  const WORKERS = 4;
+  const WORKERS = 1;
   const queues = Array.from({ length: WORKERS }, () => []);
 
   pdfUrls.forEach((url, i) => queues[i % WORKERS].push(url));
@@ -167,7 +207,7 @@ async function testUrl(page, url) {
           if (!existing.has(candidate)) {
             fs.appendFileSync(outputFile, candidate + "\n");
             existing.add(candidate);
-            console.log(`[W${queueIndex}] Added immediately: ${candidate}`);
+            console.log(`[W${queueIndex}] File found: ${candidate}`);
           }
 
           break;
