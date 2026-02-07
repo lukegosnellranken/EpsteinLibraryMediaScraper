@@ -4,7 +4,7 @@ This project is designed to scrape, validate, and archive media files from the E
 
 # On the Total Number of Valid Files
 
-1. The total search results for "No Images Produced" are less than the Library states due to a bug on the DOJ website. For instance, as of 2/6/25, the site states "Showing 1 to 10 of 3,803 Results." The actual number of returned non-duplicate results is 2725.
+1. The total search results for "No Images Produced" are less than the Library states due to a bug on the DOJ website. For instance, as of 2/7/25, the site states "Showing 1 to 10 of 3,803 Results." The actual number of returned non-duplicate results is 2775.
 2. Not all files have valid extensions, thus the number of valid URLs may be less than the number of files that were processed during scraping.
 
 ## ☕ Buy Me a Coffee ☕
@@ -20,48 +20,60 @@ All donations are deeply appreciated: https://buymeacoffee.com/lukegosnell
 ### General Use Example
 The following example is theoretical, as after a few hundered or so requests while validating, I began having my access denied from the Library. Thus, it is best to spread validation and zipping (see `Validating URLS` and `Zipping Media Files` sections below for usage) across multiple runs if downloading a large number of files.
 
-1.  In the project root folder, run `./run.sh 0` to scrape and validate all files. 
-    - Scraped files will be viewable in pdf_list.txt and validated files will be viewable in valid_media.txt.
-    - Note that in the test browser, the user must manually validate the "I am not a robot" and "Are you 18 years or older?" messages on the landing page of the Epstein Library before scraping and/or validating (and hit `enter` in the terminal afterward). Not doing so will cause the run to fail.
-2.  Run `node zip.js 0` to download all media files from `valid_media.txt`.
-3.  View the media in the generated `media_archive.zip` folder.
+1.  In the project root folder, run `node scrape.js 0` to scrape all search results. 
+    - In the test browser, the user must manually validate the "I am not a robot" and "Are you 18 years or older?" messages on the landing page of the Epstein Library before scraping (and hit `enter` in the terminal afterward). Not doing so will cause the run to fail.
+    - Scraped entries will be viewable in `pdf_list.txt`.
+2.  Run `node validate.js 0` to validate all stored entries from scraping.
+    - In the test browser, the user must manually validate the "Are you 18 years or older?" message.
+    - Validated files will be viewable in `valid_media.txt`.
+3.  Run `node zip.js 0` to download all media files from `valid_media.txt`.
+4.  View the media in the generated `media_archive.zip` folder.
 
-NOTE: All files (as of 2/5/26) are listed in the `testing` folder (`pdf_list.all.txt`). To skip the scraping step, move this file into the root of the project and remove the `.all` from its filename. From here, validate and zip to download the files.
+NOTE: All files (as of 2/7/26) are listed in the `results` folder (`pdf_list.all.txt`). To skip the scraping step, move this file into the root of the project and remove the `.all` from its filename. From here, validate and zip to download the files.
 
 ## Deeper Usage
 
-### Running the Scraper and Validator (`run.sh`)
+### Scraping URLs (`scrape.js`)
 
-The `run.sh` script automates the process of scraping media URLs using `scrape.js` and then validating them using `validate.js`. You can control which entries are processed by providing an argument to the script.
+The `scrape.js` script compiles every .pdf resulting from the search of "No Images Produced" and archives them into `pdf_list.txt`.
+
+NOTE: The search results ordered from the backend search (https://www.justice.gov/multimedia-search?keys=No%20Images%20Produced&page=0) may be in a different order than what appears on the DOJ website.
 
 **Syntax:**
 
 ```bash
-./run.sh <SCRAPE_ENTRIES_VALUE>
+node scrape.js <RANGE_OR_INDEX>
 ```
 
 **Arguments:**
 
-*   `<SCRAPE_ENTRIES_VALUE>`: A string representing the entries to scrape. Examples include:
-    *   `<index>` (e.g., `25`): Process only the first 25 files`.
-    *   `0`: A special argument. If you pass `0`, the script will read the `TOTAL_LIBRARY_FILES` value from your `.env` file and use that to set `SCRAPE_ENTRIES`, effectively processing all files if `TOTAL_LIBRARY_FILES` represents the total count.
+*   `<RANGE_OR_INDEX>`: (Optional) Controls which entries are to be scraped.
+    *   `0`: Process all entries found in search results.
+    *   `<index>` (e.g., `5`): Process only the entry at the specified 1-based index from the search results.
+    *   `<start>-<end>` (e.g., `5-12`): Process entires within the specified 1-based range from the search results.
+    *   *If no argument is provided, it defaults to processing all entries (equivalent to `0`).*
 
 **Examples:**
 
 ```bash
-# Scrape and validate entries 1, 5, and 10
-./run.sh "1,5,10"
+# Scrape all entries from pdf_list.txt
+node scrape.js 0
 
-# Scrape and validate entries from 20 to 50
-./run.sh "20-50"
+# Scrape only the 7th entry
+node scrape.js 7
 
-# Scrape and validate all entries based on TOTAL_LIBRARY_FILES from .env
-./run.sh 0
+# Scrape entries from the 10th to the 25th entry
+node scrape.js 10-25
+
+# Scrape all entries (no argument implicitly means all)
+node scrape.js
 ```
 
 ### Validating URLs (`validate.js`)
 
 The `validate.js` script finds the valid media URLs (based on `pdf_list.txt`) and archives them into `valid_media.txt`.
+
+NOTE: Take note of the terminal if the run times out. There are instructions for continuing where the run left off.
 
 **Syntax:**
 

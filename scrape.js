@@ -1,182 +1,194 @@
-require("dotenv").config();
-const scrape_entries = process.env.SCRAPE_ENTRIES;
-
-const { chromium } = require("playwright");
 const fs = require("fs");
-const readline = require("readline");
+const { chromium } = require("playwright");
 
-// ------------------------------
-// CONFIG: LIMIT NUMBER OF RESULTS
-// ------------------------------
-const MAX_RESULTS = scrape_entries;
+const QUERY = "No Images Produced";
+const BASE_URL = "https://www.justice.gov/multimedia-search";
+const OUTPUT = "pdf_list.txt";
 
-// ------------------------------
-// SIMPLE PROGRESS BAR
-// ------------------------------
-function renderProgress(pageNum) {
-  const width = 10;
-  const filled = pageNum % (width + 1);
-  const bar = "#".repeat(filled) + "-".repeat(width - filled);
-  process.stdout.write(`\rPage ${pageNum} [${bar}]`);
+// ------------------------------------------------------------
+// RANGE SELECTION (CLI ARGUMENT)
+// Usage:
+//   node scrape.js 0        → all
+//   node scrape.js 1        → first entry
+//   node scrape.js 5        → fifth entry
+//   node scrape.js 5-12     → entries 5 through 12
+// ------------------------------------------------------------
+
+const arg = process.argv[2] || "0";
+
+let startIndex = 0;
+let endIndex = Infinity;
+
+if (arg.includes("-")) {
+  const [start, end] = arg.split("-").map(n => parseInt(n, 10));
+
+  // 1-based → 0-based
+  startIndex = Math.max(start - 1, 0);
+  endIndex = Math.max(end - 1, 0);
+} else {
+  const n = parseInt(arg, 10);
+
+  if (n === 0) {
+    // 0 → all entries
+    startIndex = 0;
+    endIndex = Infinity;
+  } else {
+    // 1-based → 0-based
+    startIndex = Math.max(n - 1, 0);
+    endIndex = startIndex;
+  }
 }
 
-// ------------------------------
-// BOT-GATE
-// ------------------------------
-async function waitForBotGate(context) {
-  await context.waitForEvent("requestfinished", async () => {
-    const cookies = await context.cookies();
-    return cookies.some(c =>
-      c.name.includes("cf") ||
-      c.name.includes("bm") ||
-      c.name.includes("ak")
-    );
-  });
+const startPage = Math.floor(startIndex / 10);
+const endPage = isFinite(endIndex) ? Math.floor(endIndex / 10) : Infinity;
+
+const startOffset = startIndex % 10;
+const endOffset = endIndex % 10;
+
+function renderTwoLineProgress(current, total, pageCount, totalCount, firstRender) {
+  const width = 40;
+  const ratio = Math.min(current / total, 1);
+  const filled = Math.round(ratio * width);
+  const bar = "█".repeat(filled) + "░".repeat(width - filled);
+
+  if (!firstRender) {
+    process.stdout.write("\x1b[2A");
+  }
+
+  process.stdout.write(`[${bar}] ${current}/${total}\n`);
+  process.stdout.write(`${pageCount} PDFs, total so far: ${totalCount}\n`);
 }
 
-// ------------------------------
-// MANUAL AGE-GATE
-// ------------------------------
-function waitForUserConfirmation(message) {
-  return new Promise(resolve => {
-    const rl = readline.createInterface({
-      input: process.stdin,
-      output: process.stdout
-    });
-
-    rl.question(message, () => {
-      rl.close();
-      resolve();
-    });
-  });
+function makePageUrl(page) {
+  return `${BASE_URL}?keys=${encodeURIComponent(QUERY)}&page=${page}`;
 }
 
-// ------------------------------
-// MAIN SCRAPER
-// ------------------------------
-async function scrapePDFs() {
-  const browser = await chromium.launch({ headless: false, slowMo: 250 });
+function buildTargetUrl(fileName) {
+  return `https://www.justice.gov/epstein/files/DataSet%2010/${encodeURIComponent(fileName)}`;
+}
+
+async function scrapeAll() {
+  console.log("Launching browser…");
+
+  const browser = await chromium.launch({ headless: false, slowMo: 80 });
   const context = await browser.newContext();
   const page = await context.newPage();
 
-  console.log("Opening Epstein Library…");
-  await page.goto("https://www.justice.gov/epstein");
+  const startUrl = makePageUrl(startPage);
+  console.log(`Opening initial page: ${startUrl}`);
+  await page.goto(startUrl);
 
-  console.log("Waiting for bot‑gate…");
-  await waitForBotGate(context);
-  console.log("Bot‑gate cleared.");
+  console.log("\nSolve Cloudflare and age-gate on THIS PAGE.");
+  console.log("Wait until you see the JSON payload.");
+  console.log("Then press Enter here.\n");
 
-  console.log("If an age‑gate is visible, click “Yes” in the browser.");
-  await waitForUserConfirmation("After you click Yes on the age‑gate, press Enter here to continue… ");
+  await new Promise(resolve => process.stdin.once("data", resolve));
+  process.stdin.setRawMode(false);
+  process.stdin.pause();
 
-  // ------------------------------
-  // SEARCH INPUT + BUTTON
-  // ------------------------------
 
-  console.log("Locating search input…");
+  // Load existing entries so we append instead of overwrite
+  let existing = [];
+  if (fs.existsSync(OUTPUT)) {
+    existing = fs.readFileSync(OUTPUT, "utf8")
+      .split("\n")
+      .map(x => x.trim())
+      .filter(Boolean);
+  }
 
-  const input = page.locator("input[placeholder*='Type to search']");
-  await input.waitFor({ state: "visible", timeout: 15000 });
+  const pdfs = new Set(existing);
+  const existingCount = pdfs.size;
 
-  console.log("Typing search query…");
-  await input.fill("No Images Produced");
+  let pageNum = startPage;
+  let totalPages = null;
+  let firstRender = true;
 
-  console.log("Locating search button…");
-
-  const searchButton = page.locator("button:has-text('Search')");
-  await searchButton.waitFor({ state: "visible", timeout: 15000 });
-
-  console.log("Submitting search…");
-  await searchButton.click();
-
-  // ------------------------------
-  // WAIT FOR RESULTS (#results)
-  // ------------------------------
-  console.log("Waiting for results…");
-
-  await page.waitForSelector("#results", { timeout: 20000 });
-
-  const pdfs = new Set();
-  let pageNum = 1;
-
-  // Initial progress bar
-  renderProgress(pageNum);
+  console.log(""); // spacer line for clean progress bar area
 
   while (true) {
-    // Detect session timeout
-    const sessionDead = await page.evaluate(() => {
-      const noResults = document.body.innerText.includes("No results found.");
-      const hasLinks = document.querySelectorAll("#results h3 a").length > 0;
-      return noResults && !hasLinks;
-    });
+    const url = makePageUrl(pageNum);
 
-    if (sessionDead) {
-      console.log("\nSession expired. Please refresh the page manually and pass the gate(s) again.");
-      console.log("\nNext, search for 'No Images Produced' manually and skip to the last page scraped.");
-      await waitForUserConfirmation("Press Enter when ready… ");
-      await page.waitForSelector("#results", { timeout: 20000 });
+    // Fetch JSON inside browser context
+    const data = await page.evaluate(async (url) => {
+      const res = await fetch(url, { credentials: "include" });
+      if (!res.ok) return null;
+      return res.json();
+    }, url);
+
+    if (!data) break;
+
+    if (totalPages === null) {
+      const totalHits = data?.hits?.total?.value || 0;
+      // Total pages for the FULL dataset
+      const fullTotalPages = Math.ceil(totalHits / 10);
+
+      // Total pages we actually intend to scrape
+      const rangeTotalPages = isFinite(endPage)
+        ? (endPage - startPage + 1)
+        : fullTotalPages;
+
+      // Use rangeTotalPages for progress bar
+      totalPages = rangeTotalPages;
     }
 
-    // Extract PDFs from <h3><a>
-    const links = await page.evaluate(() => {
-      return Array.from(document.querySelectorAll("#results h3 a"))
-        .map(a => a.href)
-        .filter(h => h && h.toLowerCase().endsWith(".pdf"));
-    });
+    const hits = data?.hits?.hits || [];
+    if (!hits.length) break;
 
-    for (const h of links) {
-      if (pdfs.size >= MAX_RESULTS) break;
-      pdfs.add(h);
+    const pageFiles = hits
+      .map(h => {
+        const key = h?._source?.key;
+        if (!key) return null;
+
+        const [datasetFolder, fileName] = key.split("/");
+        if (!datasetFolder || !fileName) return null;
+
+        const encodedDataset = encodeURIComponent(datasetFolder);
+        const encodedFile = encodeURIComponent(fileName);
+
+        return `https://www.justice.gov/epstein/files/${encodedDataset}/${encodedFile}`;
+      })
+      .filter(Boolean);
+
+    // Determine which entries on this page we should include
+    let sliceStart = 0;
+    let sliceEnd = pageFiles.length;
+
+    if (pageNum === startPage) {
+      sliceStart = startOffset;
+    }
+    if (pageNum === endPage && isFinite(endIndex)) {
+      sliceEnd = endOffset + 1;
     }
 
-    if (pdfs.size >= MAX_RESULTS) break;
+    const selectedFiles = pageFiles.slice(sliceStart, sliceEnd);
 
-    // Pagination: look for a "Next" link
-    const nextButton = page.locator("a:has-text('Next')");
-    const hasNext = await nextButton.count();
+    for (const url of selectedFiles) {
+      pdfs.add(url);
+    }
 
-    if (!hasNext) break;
+    // Line 1: progress bar
+    const currentPageIndex = pageNum - startPage + 1;
 
-    // Advance page
-    pageNum++;
-    renderProgress(pageNum);
-
-    await nextButton.first().click();
-    await page.waitForLoadState("networkidle");
-    await page.waitForSelector("#results", { timeout: 20000 });
-  }
-
-  // Move to next line after progress bar
-  process.stdout.write("\n");
-
-  // ------------------------------
-  // WRITE RESULTS WITHOUT OVERWRITING
-  // ------------------------------
-  const outputFile = "pdf_list.txt";
-
-  // Load existing entries if file exists
-  let existing = new Set();
-  if (fs.existsSync(outputFile)) {
-    existing = new Set(
-      fs.readFileSync(outputFile, "utf8")
-        .split(/\r?\n/)
-        .map(x => x.trim())
-        .filter(x => x.length > 0)
+    renderTwoLineProgress(
+      currentPageIndex,
+      totalPages,
+      selectedFiles.length,
+      pdfs.size,
+      firstRender
     );
+
+    firstRender = false;
+
+    if (pageNum >= endPage) break;
+    pageNum++;
   }
 
-  // Merge new PDFs into the existing set
-  for (const pdf of pdfs) {
-    existing.add(pdf);
-  }
+  fs.writeFileSync(OUTPUT, Array.from(pdfs).join("\n") + "\n");
 
-  // Write back the merged set
-  fs.writeFileSync(outputFile, Array.from(existing).join("\n"));
-
-  console.log(`Done. Extracted ${pdfs.size} PDFs.`);
-  console.log("Updated pdf_list.txt without overwriting existing entries.");
+  const addedCount = pdfs.size - existingCount;
+  console.log(`Done. Added ${addedCount} new URLs. Total now: ${pdfs.size}.`);
 
   await browser.close();
 }
 
-scrapePDFs();
+scrapeAll();
