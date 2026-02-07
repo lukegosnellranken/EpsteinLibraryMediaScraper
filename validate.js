@@ -127,31 +127,20 @@ async function waitForTurnstile(page) {
   while (true) {
     const url = page.url();
 
-    // Simple URL-based detection (Cloudflare challenge pages)
     const looksLikeChallengeUrl =
       url.includes("/challenge") ||
       url.includes("challenges.cloudflare.com");
 
-    // Text-based detection on the top-level page
     const hasText = await page.$('text="I am not a robot"');
-
-    // Iframe-based detection
     const hasIframe = await page.$('iframe[src*="challenges.cloudflare.com"]');
 
+    // If no challenge indicators → continue
     if (!looksLikeChallengeUrl && !hasText && !hasIframe) {
-      // No challenge → continue
       return;
     }
 
-    console.log("\n⚠️  Cloudflare verification required.");
-    console.log("Please click the 'I am not a robot' button in the browser.");
-    console.log("Press Enter here once the page finishes loading normally.\n");
-
-    await new Promise(resolve => {
-      process.stdin.resume();
-      process.stdin.once("data", resolve);
-    });
-    process.stdin.pause();
+    // Challenge still active → wait and check again
+    await page.waitForTimeout(500);
   }
 }
 
