@@ -39,8 +39,16 @@ if (arg && arg !== "0") {
 
 console.log(`Loaded ${pdfUrls.length} PDF URLs from pdf_list.txt`);
 
+// Attempted extensions (no files found): .vob, .rmvb, .rm, .xvid, .divx, .flac, .ogv, .oga, .f4v, .ra, .mka, .aif, .aiff, .mts, .m2ts, .mpe, .mpeg, .mpg, .mpeg, .ts, .mkv, .flv, .aac, .wma, .webm
+
+// Covers a small number of files
+// const extensions = [".wmv", ".wav", ".opus", ".3gp", ".mp3", ".amr"];
+
+// Covers vast majority of files
+const extensions = [".mp4", ".avi", ".mov", ".m4a", ".m4v"];
+
 // Full coverage
-const extensions = [".mp4", ".avi", ".m4a", ".m4v", ".mov"];
+// const extensions = [".mp4", ".avi", ".mov", ".m4a", ".m4v", ".wmv", ".wav", ".opus", ".3gp", ".mp3", ".amr"];
 
 // ------------------------------------------------------------
 // LOAD EXISTING VALID MEDIA URLS (avoid duplicates)
